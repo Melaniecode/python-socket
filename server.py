@@ -1,57 +1,50 @@
 import socket
-import threading
+import select
 
-# 用來儲存所有連線的客戶端
-clients = []
-
-# 客戶端名稱
-client_names = {}
-
-# 處理每個客戶端連線的函式
-def handle_client(client_socket, addr):
-    client_socket.send("請輸入您的名稱: ".encode('utf-8'))
-    name = client_socket.recv(1024).decode('utf-8')
-    client_names[client_socket] = name
-    print(f"新連線: {name} ({addr})")
-    broadcast(f"{name} 加入聊天室!".encode('utf-8'), client_socket)
-
-    # 持續接收訊息並轉發
-    while True:
-        try:
-            message = client_socket.recv(1024)
-            if not message:
-                break
-            print(f"{name}: {message.decode('utf-8')}")
-            broadcast(f"{name}: {message.decode('utf-8')}".encode('utf-8'), client_socket)
-        except:
-            break
-
-    print(f"{name} 斷線")
-    clients.remove(client_socket)
-    del client_names[client_socket]
-    broadcast(f"{name} 離開聊天室!".encode('utf-8'), client_socket)
-    client_socket.close()
-
-# 廣播訊息給所有客戶端
-def broadcast(message, sender_socket):
-    for client in clients:
-        if client != sender_socket:
-            try:
-                client.send(message)
-            except:
-                client.close() # 若發送失敗（如客戶端斷線），則關閉該連線
-                clients.remove(client)
-
-# 建立socket後綁定
 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+server.setblocking(False)  # 設定為非阻塞
 server.bind(("0.0.0.0", 5555))
+server.listen()
 
-server.listen(5)
-print("server已啟動，等待client端連線...")
+sockets_list = [server]  # 追蹤所有的 socket 連線
+clients = {}  # 追蹤客戶端 {socket: addr}
 
-# 接受連線並處理
+print("伺服器啟動，等待連線...")
+
 while True:
-    client_socket, addr = server.accept()
-    clients.append(client_socket)
-    client_thread = threading.Thread(target=handle_client, args=(client_socket, addr))
-    client_thread.start()
+    # 使用 select 檢測可讀的 socket
+    read_sockets, _, exception_sockets = select.select(sockets_list, [], sockets_list)
+
+    for notified_socket in read_sockets:
+        # 有新客戶端連線
+        if notified_socket == server:
+            client_socket, client_address = server.accept()
+            client_socket.setblocking(False)  # 設定新連線為非阻塞
+            sockets_list.append(client_socket)
+            clients[client_socket] = client_address
+            print(f"新客戶端連線: {client_address}")
+
+        # 接收客戶端的訊息
+        else:
+            try:
+                message = notified_socket.recv(1024)
+                if not message:
+                    print(f"客戶端 {clients[notified_socket]} 斷線")
+                    sockets_list.remove(notified_socket)
+                    del clients[notified_socket]
+                    continue
+
+                print(f"收到來自 {clients[notified_socket]} 的訊息: {message.decode()}")
+                
+                # 廣播訊息給其他客戶端
+                for client in clients:
+                    if client != notified_socket:
+                        client.send(message)
+
+            except BlockingIOError:
+                pass
+
+    # 移除發生異常的 socket
+    for notified_socket in exception_sockets:
+        sockets_list.remove(notified_socket)
+        del clients[notified_socket]

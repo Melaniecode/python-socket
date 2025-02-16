@@ -1,31 +1,33 @@
 import socket
-import threading
+import select
+import sys
 
-# 接收訊息的函式
-def receive_messages(client_socket):
-    while True:
-        try:
-            message = client_socket.recv(1024)
-            print(message.decode('utf-8'))
-        except:
-            print("無法接收訊息")
-            break
-
-# 發送訊息的函式
-def send_messages(client_socket):
-    while True:
-        message = input("")
-        client_socket.send(message.encode('utf-8'))
-
-# 建立socket後連線
 client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-client.connect(("127.0.0.1", 5555))
+client.setblocking(False)  # 設定非阻塞
+client.connect_ex(("127.0.0.1", 5555))  # 非阻塞連線，避免卡住
 
-# 啟動接收訊息的線程
-receive_thread = threading.Thread(target=receive_messages, args=(client,))
-receive_thread.start()
+print("連線到伺服器成功，輸入訊息開始聊天 (輸入 'exit' 離開)")
 
+while True:
+    sockets_list = [sys.stdin, client]  # 監聽鍵盤輸入 & 伺服器訊息
+    read_sockets, _, _ = select.select(sockets_list, [], [])
 
-# 啟動發送訊息的線程
-send_thread = threading.Thread(target=send_messages, args=(client,))
-send_thread.start()
+    for notified_socket in read_sockets:
+        if notified_socket == client:
+            try:
+                message = client.recv(1024)
+                if not message:
+                    print("伺服器已斷線")
+                    sys.exit()
+                print("來自伺服器: " + message.decode())
+
+            except BlockingIOError:
+                pass
+
+        else:
+            message = sys.stdin.readline().strip()
+            if message.lower() == "exit":
+                print("關閉連線")
+                client.close()
+                sys.exit()
+            client.send(message.encode())
