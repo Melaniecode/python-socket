@@ -1,17 +1,31 @@
 import socket
+import threading
 
-# 1. 創建一個 socket，這是用來發送和接收資料的網路「電話」
-client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+# 接收訊息的函式
+def receive_messages(client_socket):
+    while True:
+        try:
+            message = client_socket.recv(1024)
+            print(message.decode('utf-8'))
+        except:
+            print("無法接收訊息")
+            break
 
-# 2. 連接到伺服器，這是「撥打」連接到伺服器的電話號碼
-client_socket.connect(('localhost', 6666))
+# 發送訊息的函式
+def send_messages(client_socket):
+    while True:
+        message = input("")
+        client_socket.send(message.encode('utf-8'))
 
-# 3. 向伺服器發送一個訊息
-client_socket.sendall(b'Hello, Server!')
+# 建立socket後連線
+client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+client.connect(("127.0.0.1", 5555))
 
-# 4. 接收伺服器的回應，這就像你聽到商店的回應
-response = client_socket.recv(1024)
-print(f"Server response: {response.decode()}")
+# 啟動接收訊息的線程
+receive_thread = threading.Thread(target=receive_messages, args=(client,))
+receive_thread.start()
 
-# 5. 結束這個網路通話
-client_socket.close()
+
+# 啟動發送訊息的線程
+send_thread = threading.Thread(target=send_messages, args=(client,))
+send_thread.start()

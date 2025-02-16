@@ -1,26 +1,57 @@
 import socket
+import threading
 
-# 1. 創建一個 socket，這是商店的電話
-server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+# 用來儲存所有連線的客戶端
+clients = []
 
-# 2. 把電話號碼（IP 和端口）綁定到商店
-server_socket.bind(('localhost', 6666))
+# 客戶端名稱
+client_names = {}
 
-# 3. 開始等待來自顧客的電話
-server_socket.listen(5)
+# 處理每個客戶端連線的函式
+def handle_client(client_socket, addr):
+    client_socket.send("請輸入您的名稱: ".encode('utf-8'))
+    name = client_socket.recv(1024).decode('utf-8')
+    client_names[client_socket] = name
+    print(f"新連線: {name} ({addr})")
+    broadcast(f"{name} 加入聊天室!".encode('utf-8'), client_socket)
 
-print("Server is listening for connections...")
+    # 持續接收訊息並轉發
+    while True:
+        try:
+            message = client_socket.recv(1024)
+            if not message:
+                break
+            print(f"{name}: {message.decode('utf-8')}")
+            broadcast(f"{name}: {message.decode('utf-8')}".encode('utf-8'), client_socket)
+        except:
+            break
 
-# 4. 接聽顧客來的電話
-client_socket, client_address = server_socket.accept()
-print(f"Connection established with {client_address}")
+    print(f"{name} 斷線")
+    clients.remove(client_socket)
+    del client_names[client_socket]
+    broadcast(f"{name} 離開聊天室!".encode('utf-8'), client_socket)
+    client_socket.close()
 
-# 5. 接收顧客的要求
-data = client_socket.recv(1024)
-print(f"Received from client: {data.decode()}")
+# 廣播訊息給所有客戶端
+def broadcast(message, sender_socket):
+    for client in clients:
+        if client != sender_socket:
+            try:
+                client.send(message)
+            except:
+                client.close() # 若發送失敗（如客戶端斷線），則關閉該連線
+                clients.remove(client)
 
-# 6. 回應顧客
-client_socket.sendall(b'Hello, Client!')
+# 建立socket後綁定
+server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+server.bind(("0.0.0.0", 5555))
 
-# 7. 結束通話
-client_socket.close()
+server.listen(5)
+print("server已啟動，等待client端連線...")
+
+# 接受連線並處理
+while True:
+    client_socket, addr = server.accept()
+    clients.append(client_socket)
+    client_thread = threading.Thread(target=handle_client, args=(client_socket, addr))
+    client_thread.start()
